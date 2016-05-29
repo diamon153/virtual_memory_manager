@@ -1,4 +1,3 @@
-
 #include <stdio.h>
 #include <sys/mman.h>
 #include <sys/types.h>
@@ -16,34 +15,27 @@
 
 #define MEMORY_SIZE PAGES * PAGE_SIZE
 
+void initialize();
+void end_program();
+
 signed char main_memory[MEMORY_SIZE];
 int page_table[PAGES];
+signed char *backing; // Pointer to memory mapped backing file
+FILE * address_file;
+int logical_address;
+int total_count;
+int page_count;
+int tlb_hit;
 
-// Pointer to memory mapped backing file
-signed char *backing;
 
 int main(int argc, const char *argv[]){
-	// Get BACKING_STORE data
-    int backing_fd = open("BACKING_STORE.bin", O_RDONLY);
-	backing = mmap(0, MEMORY_SIZE, PROT_READ, MAP_PRIVATE, backing_fd, 0); 
-    
-    // Open address txt
-    FILE * address_file = fopen("addresses.txt", "r");
-    if (address_file == NULL)
+	if (argc != 2) {
+        printf("Invalid number of inputs. Input just the address txt file\n");
         exit(EXIT_FAILURE);
-    int logical_address;
-    fscanf(address_file, "%d", &logical_address);
-    int empty_table = 0;
+    }     
+    address_file = fopen(argv[1], "r");
+    initialize();
 
-    // Set all page_table as non-filled
-    for(int i = 0; i < PAGES; i++) {
-        page_table[i] = -1;
-    }
-
-    // Stat variables
-    int total_count = 0;
-    int page_fault = 0;
-    int tlb_hit = 0;
 
     // Read line by line and find the correct mapping
     while(!feof(address_file)) {
@@ -52,16 +44,16 @@ int main(int argc, const char *argv[]){
         int physical_address;
         signed char value;
         total_count++;
+        
         if (page_table[logical_page] == -1) {
         
         // page fault: need to get data from backingdata
-            memcpy(main_memory + empty_table * PAGE_SIZE, backing + logical_page * PAGE_SIZE, PAGE_SIZE);       
-            physical_address = (empty_table << OFFSET_BITS) | offset;
+            memcpy(main_memory + page_count * PAGE_SIZE, backing + logical_page * PAGE_SIZE, PAGE_SIZE);       
+            physical_address = (page_count << OFFSET_BITS) | offset;
             value = main_memory[physical_address];
-            page_table[logical_page] = empty_table;
+            page_table[logical_page] = page_count;
         	printf("V_add:%5d(%4d,%4d)   P_addr:%5d(%4d,%4d) Value: %8d\n", logical_address, logical_address/256, logical_address%256, physical_address,  physical_address/256, physical_address%256, value);
-            empty_table++;
-            page_fault++;
+            page_count++;
         } else {
         
         // the page is already in the page table
@@ -74,13 +66,38 @@ int main(int argc, const char *argv[]){
         fscanf(address_file, "%d", &logical_address);
     }
     
+    end_program();
+	return 0;
+}
 
+void initialize() {
+    // Get BACKING_STORE data
+    int backing_fd = open("BACKING_STORE.bin", O_RDONLY);
+	backing = mmap(0, MEMORY_SIZE, PROT_READ, MAP_PRIVATE, backing_fd, 0); 
+
+    // Set all page_table as non-filled
+    for (int i = 0; i < PAGES; i++) {
+        page_table[i] = -1;
+    }
+
+    // Open address txt
+    if (address_file == NULL) {
+        printf("Invalid file\n");
+        exit(EXIT_FAILURE);
+    }
+    fscanf(address_file, "%d", &logical_address);
+    
+    // Set all counters to 0
+    total_count = 0;
+    page_count = 0;
+    tlb_hit = 0;
+}
+
+void end_program() {
     printf("Number of Translated Addresses = %d\n", total_count);
-    printf("Page Faults = %d\n", page_fault);
-    printf("Page Fault Rate = %.3f\n", (double)page_fault / total_count);
+    printf("Page Faults = %d\n", page_count);
+    printf("Page Fault Rate = %.3f\n", (double)page_count / total_count);
     printf("TLB Hits = %d\n", tlb_hit);
     printf("TLB Hit Rate = %.3f\n", (double)tlb_hit / total_count);
-
     fclose(address_file);    
-	return 0;
 }
