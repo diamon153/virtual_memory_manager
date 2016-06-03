@@ -9,6 +9,7 @@
 #define PAGES 256
 #define PAGE_MASK 255
 
+#define TLB_SIZE 16
 #define PAGE_SIZE 256
 #define OFFSET_BITS 8
 #define OFFSET_MASK 255
@@ -19,12 +20,16 @@ void initialize();
 void end_program();
 void page_miss(int logical_page, int offset);
 void page_hit(int logical_page, int offset);
+typedef enum {false, true} bool;
 
 signed char main_memory[MEMORY_SIZE];
 int page_table[PAGES];
+int tlb_page[TLB_SIZE];
+int tlb_loc[TLB_SIZE];
 signed char *backing; // Pointer to memory mapped backing file
 FILE * address_file;
 int logical_address;
+int tlb_replace;
 int total_count;
 int page_count;
 int tlb_hit;
@@ -44,10 +49,21 @@ int main(int argc, const char *argv[]){
         int logical_page = (logical_address >> OFFSET_BITS) & PAGE_MASK;
         int offset = logical_address & OFFSET_MASK;
         total_count++;
+        bool tlb_miss = true;
+        for (int i = 0; i < TLB_SIZE; i++) {
+            if (tlb_page[i] == logical_page) {
+                int physical_address = (tlb_loc[i] << OFFSET_BITS) | offset;
+                signed char value = main_memory[physical_address];
+                printf("V_add:%5d(%4d,%4d)   P_addr:%5d(%4d,%4d) Value: %8d\n", logical_address, logical_address/256, logical_address%256, physical_address,  physical_address/256, physical_address%256, value);
+                tlb_miss = false;
+                tlb_hit++;
+            }
+        }
 
-        if (page_table[logical_page] == -1)
+        // See if the logical_page exist 
+        if ((page_table[logical_page] == -1) && tlb_miss)
             page_miss(logical_page, offset);
-        else
+        else if (tlb_miss)
             page_hit(logical_page, offset);
 
         fscanf(address_file, "%d", &logical_address);
@@ -65,6 +81,10 @@ void initialize() {
     // Set all page_table as non-filled
     for (int i = 0; i < PAGES; i++)
         page_table[i] = -1;
+    
+    // Set all of tlb rows as empty
+    for (int i = 0; i < TLB_SIZE; i++)
+        tlb_page[i] = -1;
 
     // Open address txt
     if (address_file == NULL) {
@@ -77,6 +97,7 @@ void initialize() {
     total_count = 0;
     page_count = 0;
     tlb_hit = 0;
+    tlb_replace = 0;
 }
 
 void end_program() {
@@ -95,6 +116,13 @@ void page_miss(int logical_page, int offset) {
     signed char value = main_memory[physical_address];
     
     page_table[logical_page] = page_count;
+
+    // tlb update
+    tlb_page[tlb_replace] = logical_page;
+    tlb_loc[tlb_replace] = page_count;
+    tlb_replace = (tlb_replace + 1) % TLB_SIZE;
+    
+    // print the result
     printf("V_add:%5d(%4d,%4d)   P_addr:%5d(%4d,%4d) Value: %8d\n", logical_address, logical_address/256, logical_address%256, physical_address,  physical_address/256, physical_address%256, value);
     page_count++;
 }
@@ -102,6 +130,12 @@ void page_miss(int logical_page, int offset) {
 void page_hit(int logical_page, int offset) {
     int physical_address = (page_table[logical_page] << OFFSET_BITS) | offset;
     signed char value = main_memory[physical_address];
-    
+   
+    // tlb update
+    tlb_page[tlb_replace] = logical_page;
+    tlb_loc[tlb_replace] = page_table[logical_page];
+    tlb_replace = (tlb_replace + 1) % TLB_SIZE;
+
+    // print the reulst
     printf("V_add:%5d(%4d,%4d)   P_addr:%5d(%4d,%4d) Value: %8d\n", logical_address, logical_address/256, logical_address%256, physical_address,  physical_address/256, physical_address%256, value);
 }
